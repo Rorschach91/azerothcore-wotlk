@@ -18293,73 +18293,65 @@ void Unit::SetStunned(bool apply)
     }
 }
 
-void Unit::SetRooted(bool apply, bool isStun)
+void Unit::SetRooted(bool apply, bool stun, bool logout)
 {
+    const uint32 state = (stun ? (logout ? UNIT_STATE_LOGOUT_TIMER : UNIT_STATE_STUNNED) : UNIT_STATE_ROOT);
+
     if (apply)
     {
-        // MOVEMENTFLAG_ROOT cannot be used in conjunction with MOVEMENTFLAG_MASK_MOVING (tested 3.3.5a)
-        // this will freeze clients. That's why we remove MOVEMENTFLAG_MASK_MOVING before
-        // setting MOVEMENTFLAG_ROOT
-        RemoveUnitMovementFlag(MOVEMENTFLAG_MASK_MOVING);
+        AddUnitState(state);
 
-        if (IsFalling())
-        {
-            AddUnitMovementFlag(MOVEMENTFLAG_PENDING_ROOT);
-        }
-        else
-        {
-            AddUnitMovementFlag(MOVEMENTFLAG_ROOT);
-        }
-
-         // Creature specific
-        if (!IsPlayer())
-        {
-            if (isStun && movespline->Finalized())
-            {
-                StopMovingOnCurrentPos();
-            }
-            else
-            {
-                StopMoving();
-            }
-        }
-
-        if (m_movedByPlayer)
-        {
-            WorldPacket data(SMSG_FORCE_MOVE_ROOT, GetPackGUID().size() + 4);
-            data << GetPackGUID();
-            data << m_movedByPlayer->ToPlayer()->GetSession()->GetOrderCounter(); // movement counter
-            m_movedByPlayer->ToPlayer()->SendDirectMessage(&data);
-            m_movedByPlayer->ToPlayer()->GetSession()->IncrementOrderCounter();
-        }
-        else
-        {
-            WorldPacket data(SMSG_SPLINE_MOVE_ROOT, GetPackGUID().size());
-            data << GetPackGUID();
-            SendMessageToSet(&data, true);
-        }
+        SendMoveRoot(true);
     }
     else
     {
-        RemoveUnitMovementFlag(MOVEMENTFLAG_ROOT | MOVEMENTFLAG_PENDING_ROOT);
+        ClearUnitState(state);
 
-        if (!HasUnitState(UNIT_STATE_STUNNED))      // prevent moving if it also has stun effect
+        // Prevent giving ability to move if more immobilizers are active
+        if (!IsImmobilizedState())
+            SendMoveRoot(false);
+    }
+}
+
+void Unit::SendMoveRoot(bool apply)
+{
+    const Player* client = GetClientControlling();
+
+    // Apply flags in-place when unit currently is not controlled by a player
+    if (!client)
+    {
+        if (apply)
         {
-            if (m_movedByPlayer)
-            {
-                WorldPacket data(SMSG_FORCE_MOVE_UNROOT, GetPackGUID().size() + 4);
-                data << GetPackGUID();
-                data << m_movedByPlayer->ToPlayer()->GetSession()->GetOrderCounter(); // movement counter
-                m_movedByPlayer->ToPlayer()->SendDirectMessage(&data);
-                m_movedByPlayer->ToPlayer()->GetSession()->IncrementOrderCounter();
-            }
-            else
-            {
-                WorldPacket data(SMSG_SPLINE_MOVE_UNROOT, GetPackGUID().size());
-                data << GetPackGUID();
-                SendMessageToSet(&data, true);
-            }
+            m_movementInfo.RemoveMovementFlag(MOVEMENTFLAG_MASK_MOVING_FLY);
+            m_movementInfo.AddMovementFlag(MOVEMENTFLAG_ROOT);
+            if (!client)
+                StopMoving();
         }
+        else
+            m_movementInfo.RemoveMovementFlag(MOVEMENTFLAG_ROOT);
+    }
+
+    if (!IsInWorld())
+        return;
+
+    const PackedGuid& guid = GetPackGUID();
+    // Wrath+ spline root: when unit is currently not controlled by a player
+    if (!client)
+    {
+        WorldPacket data(apply ? SMSG_SPLINE_MOVE_ROOT : SMSG_SPLINE_MOVE_UNROOT, guid.size());
+        data << guid;
+        SendMessageToSet(&data, true);
+    }
+    // Wrath+ force root: when unit is controlled by a player
+    else
+    {
+        auto const counter = client->GetSession()->GetOrderCounter();
+
+        WorldPacket data(apply ? SMSG_FORCE_MOVE_ROOT : SMSG_FORCE_MOVE_UNROOT, guid.size() + 4);
+        data << guid;
+        data << counter;
+        client->GetSession()->SendPacket(&data);
+        client->GetSession()->IncrementOrderCounter();
     }
 }
 
@@ -19689,7 +19681,7 @@ void Unit::_ExitVehicle(Position const* exitPosition)
             else if (vehicleBase->IsCreature())
             {
                 vehicle->Uninstall();
-                vehicleBase->m_Events.AddEvent(new VehicleDespawnEvent(*vehicleBase, 2000), vehicleBase->m_Events.CalculateTime(2000));
+                vehicleBase->m_Events.AddEventAtOffset(new VehicleDespawnEvent(*vehicleBase, 2s), 2s);
             }
 
             // xinef: ugly hack, no appripriate hook later to cast spell
@@ -20799,7 +20791,10 @@ void Unit::PatchValuesUpdate(ByteBuffer& valuesUpdateBuf, BuildValuesCachePosPoi
             appendValue &= ~UNIT_NPC_FLAG_SPELLCLICK;
 
         if (!target->CanSeeVendor(creature))
+        {
+            appendValue &= ~UNIT_NPC_FLAG_REPAIR;
             appendValue &= ~UNIT_NPC_FLAG_VENDOR_MASK;
+        }
 
         if (!creature->IsValidTrainerForPlayer(target, &appendValue))
             appendValue &= ~UNIT_NPC_FLAG_TRAINER;
