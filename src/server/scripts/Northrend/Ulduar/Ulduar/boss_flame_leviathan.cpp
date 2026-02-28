@@ -90,7 +90,6 @@ enum GosNpcs
 {
     NPC_FLAME_LEVIATHAN_TURRET          = 33139,
     NPC_SEAT                            = 33114,
-    NPC_MECHANOLIFT                     = 33214,
     NPC_LIQUID                          = 33189,
 
     // Starting event
@@ -116,14 +115,13 @@ enum Events
     EVENT_MISSILE                       = 2,
     EVENT_VENT                          = 3,
     EVENT_SPEED                         = 4,
-    EVENT_SUMMON                        = 5,
-    EVENT_REINSTALL                     = 6,
-    EVENT_HODIRS_FURY                   = 7,
-    EVENT_FREYA                         = 8,
-    EVENT_MIMIRONS_INFERNO              = 9,
-    EVENT_THORIMS_HAMMER                = 10,
-    EVENT_SOUND_BEGINNING               = 11,
-    EVENT_POSITION_CHECK                = 12,
+    EVENT_REINSTALL                     = 5,
+    EVENT_HODIRS_FURY                   = 6,
+    EVENT_FREYA                         = 7,
+    EVENT_MIMIRONS_INFERNO              = 8,
+    EVENT_THORIMS_HAMMER                = 9,
+    EVENT_SOUND_BEGINNING               = 10,
+    EVENT_POSITION_CHECK                = 11,
 };
 
 enum Texts
@@ -413,13 +411,6 @@ struct boss_flame_leviathan : public BossAI
                 me->CastSpell(me, SPELL_FLAME_VENTS, false);
                 events.Repeat(20s);
                 return;
-            case EVENT_SUMMON:
-                if (summons.size() < 20)
-                    if (Creature* lift = DoSummonFlyer(NPC_MECHANOLIFT, me, 30.0f, 50.0f, 0))
-                        lift->GetMotionMaster()->MoveRandom(100);
-
-                events.Repeat(4s);
-                return;
             case EVENT_SOUND_BEGINNING:
                 if (_towersCount)
                     Talk(FLAME_LEVIATHAN_SAY_HARDMODE);
@@ -591,7 +582,6 @@ void boss_flame_leviathan::ScheduleEvents()
     events.RescheduleEvent(EVENT_MISSILE, 5s);
     events.RescheduleEvent(EVENT_VENT, 20s);
     events.RescheduleEvent(EVENT_SPEED, 15s);
-    events.RescheduleEvent(EVENT_SUMMON, 10s);
     events.RescheduleEvent(EVENT_SOUND_BEGINNING, 10s);
     events.RescheduleEvent(EVENT_POSITION_CHECK, 5s);
 
