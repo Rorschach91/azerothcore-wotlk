@@ -1240,43 +1240,6 @@ struct boss_flame_leviathan_safety_container : public NullCreatureAI
     }
 };
 
-struct npc_mechanolift : public NullCreatureAI
-{
-    npc_mechanolift(Creature* c) : NullCreatureAI(c)
-    {
-        me->SetSpeed(MOVE_RUN, rand_norm() + 0.5f);
-    }
-
-    int32 _startTimer;
-    uint32 _evadeTimer;
-
-    void Reset() override
-    {
-        _startTimer = urand(1, 5000);
-        _evadeTimer = 0;
-    }
-
-    void UpdateAI(uint32 diff) override
-    {
-        if (_startTimer)
-        {
-            _startTimer -= diff;
-            if (_startTimer <= 0)
-            {
-                me->GetMotionMaster()->MoveWaypoint(3000000 + urand(0, 11), true);
-                _startTimer = 0;
-            }
-        }
-
-        _evadeTimer += diff;
-        if (_evadeTimer >= 10000)
-        {
-            _EnterEvadeMode();
-            _evadeTimer = 0;
-        }
-    }
-};
-
 class go_ulduar_tower : public GameObjectScript
 {
 public:
@@ -1880,7 +1843,6 @@ void AddSC_boss_flame_leviathan()
     RegisterUlduarCreatureAI(npc_brann_radio);
     RegisterUlduarCreatureAI(npc_storm_beacon_spawn);
     RegisterUlduarCreatureAI(boss_flame_leviathan_safety_container);
-    RegisterUlduarCreatureAI(npc_mechanolift);
 
     // GOs
     new go_ulduar_tower();
