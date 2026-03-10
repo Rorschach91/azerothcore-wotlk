@@ -44,6 +44,7 @@
 #include "MoveSpline.h"
 #include "MoveSplineInit.h"
 #include "MovementGenerator.h"
+#include "AbstractFollower.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "OutdoorPvP.h"
@@ -750,8 +751,7 @@ void Unit::DisableSpline()
 
 void Unit::resetAttackTimer(WeaponAttackType type)
 {
-    int32 time = int32(GetAttackTime(type) * m_modAttackSpeedPct[type]);
-    m_attackTimer[type] = std::min(m_attackTimer[type] + time, time);
+    m_attackTimer[type] = int32(GetAttackTime(type) * m_modAttackSpeedPct[type]);
 }
 
 bool Unit::IsWithinCombatRange(Unit const* obj, float dist2compare) const
@@ -5528,6 +5528,16 @@ void Unit::RemoveAreaAurasDueToLeaveWorld()
     }
 }
 
+void Unit::RemoveAllFollowers()
+{
+    while (auto* ref = m_FollowingRefMgr.getFirst())
+    {
+        auto* source = ref->GetSource();
+        ref->delink();
+        source->SetTarget(nullptr);
+    }
+}
+
 void Unit::RemoveAllAuras()
 {
     // this may be a dead loop if some events on aura remove will continiously apply aura on remove
@@ -8967,7 +8977,22 @@ float Unit::SpellDoneCritChance(Unit const* /*victim*/, SpellInfo const* spellPr
                     crit_chance = 0.0f;
                 // For other schools
                 else if (IsPlayer())
+                {
                     crit_chance = GetFloatValue(static_cast<uint16>(PLAYER_SPELL_CRIT_PERCENTAGE1) + GetFirstSchoolInMask(schoolMask));
+
+                    // register aura mod, this is needed for Arcane Potency
+                    if (Spell* spell = ToPlayer()->m_spellModTakingSpell)
+                    {
+                        Unit::AuraEffectList const& critAuras = GetAuraEffectsByType(SPELL_AURA_MOD_SPELL_CRIT_CHANCE);
+                        for (AuraEffect const* aurEff : critAuras)
+                            spell->m_appliedMods.insert(aurEff->GetBase());
+
+                        Unit::AuraEffectList const& critSchoolAuras = GetAuraEffectsByType(SPELL_AURA_MOD_SPELL_CRIT_CHANCE_SCHOOL);
+                        for (AuraEffect const* aurEff : critSchoolAuras)
+                            if (aurEff->GetMiscValue() & schoolMask)
+                                spell->m_appliedMods.insert(aurEff->GetBase());
+                    }
+                }
                 else
                 {
                     crit_chance = (float)m_baseSpellCritChance;
@@ -12699,6 +12724,8 @@ void Unit::RemoveFromWorld()
         RemoveAllControlled();
 
         RemoveAreaAurasDueToLeaveWorld();
+
+        RemoveAllFollowers();
 
         if (GetCharmerGUID())
         {
