@@ -34,6 +34,7 @@ enum JaraxxusTexts
     EMOTE_INFERNAL_ERUPTION             = 7,
     SAY_INFERNAL_ERUPTION               = 8,
     SAY_DEATH                           = 10,
+    EMOTE_BERSERK                       = 11,
 };
 
 enum JaraxxusNPCs
@@ -52,6 +53,11 @@ enum JaraxxusSpells
     SPELL_SUMMON_VOLCANO                = 66258,
     SPELL_SUMMON_NETHER_PORTAL          = 66269,
     SPELL_SPELLSTEAL                    = 30449,
+    SPELL_BERSERK                       = 64238,
+
+    // Marks melee victims; Fel Lightning, Incinerate Flesh, Legion Flame and Spinning Pain Spike exclude marked targets
+    SPELL_LORD_JARAXXUS_HITTIN_YA       = 66327,
+    SPELL_LORD_JARAXXUS_HITTIN_YA_EFFECT = 66326,
 
     SPELL_FEL_STREAK                    = 66494,
     SPELL_FEL_STREAK_MORPH              = 66493,
@@ -79,9 +85,9 @@ enum JaraxxusEvents
     EVENT_SPELL_MISTRESS_KISS,
 };
 
-struct boss_jaraxxus : public ScriptedAI
+struct boss_jaraxxus : public BossAI
 {
-    boss_jaraxxus(Creature* creature) : ScriptedAI(creature), instance(creature->GetInstanceScript()), summons(creature)
+    boss_jaraxxus(Creature* creature) : BossAI(creature, BOSS_JARAXXUS)
     {
         me->AddUnitMovementFlag(MOVEMENTFLAG_WALKING);
         me->SetReactState(REACT_PASSIVE);
@@ -89,8 +95,8 @@ struct boss_jaraxxus : public ScriptedAI
 
     void Reset() override
     {
-        events.Reset();
-        instance->SetData(TYPE_JARAXXUS, NOT_STARTED);
+        _Reset();
+        DoCastSelf(SPELL_LORD_JARAXXUS_HITTIN_YA, true);
 
         std::list<Creature*> creatures;
         me->GetCreatureListWithEntryInGrid(creatures, NPC_INFERNAL_VOLCANO, 500.0f);
@@ -101,20 +107,20 @@ struct boss_jaraxxus : public ScriptedAI
 
     void JustEngagedWith(Unit* /*who*/) override
     {
-        me->setActive(true);
+        _JustEngagedWith();
         events.Reset();
-        events.RescheduleEvent(EVENT_SPELL_FEL_FIREBALL, 5s);
-        events.RescheduleEvent(EVENT_SPELL_FEL_LIGHTNING, 10s, 15s);
-        events.RescheduleEvent(EVENT_SPELL_INCINERATE_FLESH, 24s, 26s);
-        events.RescheduleEvent(EVENT_SPELL_NETHER_POWER, 25s, 45s);
-        events.RescheduleEvent(EVENT_SPELL_LEGION_FLAME, 30s);
+        events.RescheduleEvent(EVENT_SPELL_FEL_FIREBALL, 6s, 8s);
+        events.RescheduleEvent(EVENT_SPELL_FEL_LIGHTNING, 6s, 8s);
+        events.RescheduleEvent(EVENT_SPELL_INCINERATE_FLESH, 16s, 19s);
+        events.RescheduleEvent(EVENT_SPELL_NETHER_POWER, 13s, 26s);
+        events.RescheduleEvent(EVENT_SPELL_LEGION_FLAME, 11s, 29s);
         // Portal and volcano alternate, each scheduling the other
         events.RescheduleEvent(EVENT_SUMMON_NETHER_PORTAL, 20s);
 
+        ScheduleEnrageTimer(SPELL_BERSERK, 10min, EMOTE_BERSERK);
+
         me->RemoveAura(SPELL_JARAXXUS_CHAINS);
         Talk(SAY_AGGRO);
-        DoZoneInCombat();
-        instance->SetData(TYPE_JARAXXUS, IN_PROGRESS);
     }
 
     void SpellHit(Unit* caster, SpellInfo const* spellInfo) override
@@ -154,34 +160,33 @@ struct boss_jaraxxus : public ScriptedAI
         {
             case EVENT_SPELL_FEL_FIREBALL:
                 DoCastVictim(SPELL_FEL_FIREBALL);
-                events.Repeat(10s, 15s);
+                events.Repeat(11s, 13s);
                 break;
             case EVENT_SPELL_FEL_LIGHTNING:
-                if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 0.0f, true, true))
+                if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 0.0f, true, true, -SPELL_LORD_JARAXXUS_HITTIN_YA_EFFECT))
                     DoCast(target, SPELL_FEL_LIGHTNING);
-                events.Repeat(10s, 15s);
+                events.Repeat(11s, 19s);
                 break;
             case EVENT_SPELL_INCINERATE_FLESH:
-                if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 0.0f, true, true))
+                if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 0.0f, true, true, -SPELL_LORD_JARAXXUS_HITTIN_YA_EFFECT))
                 {
                     Talk(EMOTE_INCINERATE, target);
                     Talk(SAY_INCINERATE);
                     DoCast(target, SPELL_INCINERATE_FLESH);
                 }
-                events.Repeat(20s, 25s);
+                events.Repeat(21s, 27s);
                 break;
             case EVENT_SPELL_NETHER_POWER:
                 DoCastSelf(SPELL_NETHER_POWER);
-                events.DelayEvents(5s);
-                events.Repeat(25s, 45s);
+                events.Repeat(42s, 52s);
                 break;
             case EVENT_SPELL_LEGION_FLAME:
-                if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 0.0f, true, true))
+                if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 0.0f, true, true, -SPELL_LORD_JARAXXUS_HITTIN_YA_EFFECT))
                 {
                     Talk(EMOTE_LEGION_FLAME, target);
                     DoCast(target, SPELL_LEGION_FLAME);
                 }
-                events.Repeat(30s);
+                events.Repeat(30s, 39s);
                 break;
             case EVENT_SUMMON_NETHER_PORTAL:
                 Talk(EMOTE_NETHER_PORTAL);
@@ -204,14 +209,8 @@ struct boss_jaraxxus : public ScriptedAI
 
     void JustDied(Unit* /*killer*/) override
     {
-        summons.DespawnAll();
+        _JustDied();
         Talk(SAY_DEATH);
-        instance->SetData(TYPE_JARAXXUS, DONE);
-    }
-
-    void JustReachedHome() override
-    {
-        me->setActive(false);
     }
 
     void JustSummoned(Creature* summon) override
@@ -228,10 +227,6 @@ struct boss_jaraxxus : public ScriptedAI
     }
 
     void MoveInLineOfSight(Unit* /*who*/) override { }
-
-private:
-    InstanceScript* const instance;
-    SummonList summons;
 };
 
 struct npc_fel_infernal : public ScriptedAI
@@ -240,13 +235,14 @@ struct npc_fel_infernal : public ScriptedAI
 
     void Reset() override
     {
+        DoCastSelf(SPELL_LORD_JARAXXUS_HITTIN_YA, true);
         if (Unit* target = me->SelectNearestTarget(200.0f))
         {
             AttackStart(target);
             DoZoneInCombat();
         }
         events.Reset();
-        events.RescheduleEvent(EVENT_SPELL_FEL_STREAK, 7s, 20s);
+        events.RescheduleEvent(EVENT_SPELL_FEL_STREAK, 10s, 14s);
     }
 
     void UpdateAI(uint32 diff) override
@@ -268,7 +264,7 @@ struct npc_fel_infernal : public ScriptedAI
                     me->AddThreat(target, 50000.0f);
                     DoCast(target, SPELL_FEL_STREAK_MORPH, true);
                     DoCast(target, SPELL_FEL_STREAK, true);
-                    events.Repeat(30s);
+                    events.Repeat(20s, 21s);
                 }
                 else
                     events.Repeat(5s);
@@ -297,16 +293,17 @@ struct npc_mistress_of_pain : public ScriptedAI
 
     void Reset() override
     {
+        DoCastSelf(SPELL_LORD_JARAXXUS_HITTIN_YA, true);
         if (Unit* target = me->SelectNearestTarget(200.0f))
         {
             AttackStart(target);
             DoZoneInCombat();
         }
         events.Reset();
-        events.RescheduleEvent(EVENT_SPELL_SHIVAN_SLASH, 10s, 20s);
-        events.RescheduleEvent(EVENT_SPELL_SPINNING_PAIN_SPIKE, 22s, 30s);
+        events.RescheduleEvent(EVENT_SPELL_SHIVAN_SLASH, 7s, 12s);
+        events.RescheduleEvent(EVENT_SPELL_SPINNING_PAIN_SPIKE, 11s, 13s);
         if (IsHeroic())
-            events.RescheduleEvent(EVENT_SPELL_MISTRESS_KISS, 10s, 15s);
+            events.RescheduleEvent(EVENT_SPELL_MISTRESS_KISS, 7s, 10s);
     }
 
     void UpdateAI(uint32 diff) override
@@ -323,12 +320,12 @@ struct npc_mistress_of_pain : public ScriptedAI
         {
             case EVENT_SPELL_SHIVAN_SLASH:
                 DoCastVictim(SPELL_SHIVAN_SLASH);
-                events.Repeat(15s, 25s);
+                events.Repeat(10s, 16s);
                 break;
             case EVENT_SPELL_SPINNING_PAIN_SPIKE:
-                if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 140.0f, true))
+                if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 140.0f, true, true, -SPELL_LORD_JARAXXUS_HITTIN_YA_EFFECT))
                     DoCast(target, SPELL_SPINNING_PAIN_SPIKE);
-                events.Repeat(25s, 30s);
+                events.Repeat(20s, 22s);
                 break;
             case EVENT_SPELL_MISTRESS_KISS:
                 DoCastAOE(SPELL_MISTRESS_KISS);
